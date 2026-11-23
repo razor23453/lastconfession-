@@ -1,31 +1,37 @@
 /**
- * The bouquet: flowers and leaves arranged on a dome, sitting in a cone-shaped pot.
- * Everything rotates around the vertical axis and is drawn into a CellGrid.
+ * The bouquet: flowers and leaves arranged on a dome, standing in a vase.
+ * The bouquet drops in from the top of the screen, then everything spins around
+ * the vertical axis. Surfaces are lit from one side and drawn with a character
+ * ramp, so brighter areas get denser characters.
  */
 
 const FLOWER_PALETTES = {
   blue: ['#bfe3ff', '#6fb4ff', '#3a7bd5'],
   white: ['#ffffff', '#e6edfb', '#b9c7e6'],
   pink: ['#ffd0e2', '#ff86bb', '#e8508f'],
+  red: ['#ffc2c2', '#ff6377', '#c42a45'],
+  violet: ['#e6d6ff', '#a98cff', '#6e50d6'],
 };
-const PALETTE_ORDER = ['white', 'blue', 'pink', 'blue', 'white', 'pink', 'blue'];
+const PALETTE_ORDER = ['pink', 'blue', 'white', 'red', 'violet', 'pink', 'white', 'blue', 'red'];
 
 const LEAF_COLORS = ['#8ff0a0', '#4fc47a', '#2f9460'];
 const STEM_COLOR = LEAF_COLORS[1];
-const RIBBON_COLOR = '#ff4f9a';
 const RIM_COLOR = '#ffe9c8';
 
 const FLOWER_CENTER_COLOR = '#ffc14d';
 const FLOWER_RING_COLOR = '#ff9a3c';
-const FRONT_PETAL_CHARS = '#%*+=-.';
-const BACK_PETAL_CHARS = '#%+=-';
-const BACK_PETAL_TIP_COLOR = '#7a5a8a';
+const BACK_PETAL_COLOR = '#5a4a78';
+
+// Characters from dim to dense, so brightness maps to how much ink a cell gets.
+const BRIGHTNESS_RAMP = '.\'`^",:;Il!i><~+_-?][}{1)(|\\/tfjrxnuvczXYUJCLQ0OZmwqpdbkhao*#MW&8%B@$';
+const brightnessChar = (brightness) =>
+  BRIGHTNESS_RAMP[Math.floor(clamp(brightness, 0, 0.999) * BRIGHTNESS_RAMP.length)];
 
 // Sizes below are fractions of layout.scale.
 const DOME_RADIUS = 0.3;
-const LEAF_ORBIT_RADIUS = 0.3808; // leaves hang slightly further out than the flower heads
-const LEAF_LENGTH = 0.17;
-const LEAF_WIDTH = 0.06;
+const LEAF_ORBIT_RADIUS = 0.34; // leaves sit slightly further out than the flower heads
+const LEAF_LENGTH = 0.12;
+const LEAF_WIDTH = 0.07;
 const PERSPECTIVE_STRENGTH = 0.25; // how much nearer objects are enlarged
 const MIN_FACING = 0.1; // keeps edge-on shapes from blowing up
 const DEPTH_SCALE = 0.6; // how much a shape's own tilt counts towards depth
@@ -38,20 +44,62 @@ const FLOWER_RINGS = [
   [5, 7, 0.11],
 ];
 const LEAF_COUNT = 8;
-const LEAF_LATITUDE = -22;
+const LEAF_LATITUDE = -8;
+
+// The intro: the bouquet falls in from above the screen, then the flowers open.
+const DROP_SECONDS = 2.2;
+const DROP_DISTANCE = 0.85; // fraction of the screen height
+const BLOOM_START = 0.9; // seconds
 
 const LIGHT_DIRECTION = normalize([-0.5, -0.6, 0.65]);
-const POT_SLOPE = 0.34; // how much the pot's sides tilt downwards
-const POT_SHADE_CHARS = '.:-=+*#%@';
-const POT_PLEATS = 8;
-const POT_STRIPES_PER_HALF_TURN = 6;
+
+// The vase is a surface of revolution. Each entry is [fraction of the way down, radius as a
+// fraction of POT_RADIUS]: rim, neck, belly, shoulder, base.
+const VASE_PROFILE = [[0, 0.62], [0.14, 0.5], [0.5, 1], [0.85, 0.72], [1, 0.52]];
+const POT_RADIUS = 0.2; // widest part of the vase
+const VASE_HEIGHT = 2.6; // rim to base, in units of POT_RADIUS
+const VASE_PLEATS = 8;
+const VASE_BODY_HUE = 255;
+const VASE_RING_HUE = 26;
+const VASE_RING_COUNT = 14;
+const VASE_RING_EVERY = 7; // every n-th ring is picked out in the accent colour
+// Rows kept free below the vase for the character, mascot and captions.
+const FIGURE_ROWS = 13;
+
+/** Radius of the vase, relative to its widest part, at a point `progress` (0 to 1) of the way down. */
+function vaseRadius(progress) {
+  for (let i = 0; i < VASE_PROFILE.length - 1; i++) {
+    const [from, fromRadius] = VASE_PROFILE[i];
+    const [to, toRadius] = VASE_PROFILE[i + 1];
+    if (progress <= to) {
+      const t = (progress - from) / (to - from);
+      return lerp(fromRadius, toRadius, t * t * (3 - 2 * t));
+    }
+  }
+  return VASE_PROFILE[VASE_PROFILE.length - 1][1];
+}
+
+/** Half-width of the vase at a given screen height, or 0 where there is no vase. */
+function vaseHalfWidthAt(layout, y) {
+  if (y < layout.potRimY || y > layout.potBaseY) return 0;
+  return layout.potRadius * vaseRadius((y - layout.potRimY) / (layout.potBaseY - layout.potRimY));
+}
 
 /** Where things sit on screen. Recomputed whenever the window is resized. */
-function computeLayout(width, height) {
-  const scale = Math.min(width * 0.95, height * 0.66);
-  const potRadius = 0.3 * scale;
-  const potRimY = height * 0.49;
-  const potRimDepth = potRadius * Math.sin(CONFIG.cameraTilt); // half-height of the rim ellipse
+function computeLayout(width, height, cellHeight) {
+  const tilt = Math.sin(CONFIG.cameraTilt);
+  const potRimY = height * 0.46;
+  const baseRadiusRatio = VASE_PROFILE[VASE_PROFILE.length - 1][1];
+
+  // On short, wide windows the bouquet shrinks so the figure below it still fits.
+  const reach = POT_RADIUS * (VASE_HEIGHT + baseRadiusRatio * tilt);
+  const roomBelowRim = height - FIGURE_ROWS * cellHeight - potRimY;
+  const scale = Math.max(120, Math.min(width * 0.95, height * 0.66, roomBelowRim / reach));
+
+  const potRadius = POT_RADIUS * scale;
+  const potRimRadius = potRadius * VASE_PROFILE[0][1];
+  const potBaseRadius = potRadius * baseRadiusRatio;
+  const potBaseY = potRimY + potRadius * VASE_HEIGHT;
 
   return {
     width,
@@ -61,8 +109,12 @@ function computeLayout(width, height) {
     headY: height * 0.33,
     potRadius,
     potRimY,
-    potRimDepth,
-    potTipY: Math.max(height * 0.7, potRimY + potRimDepth + potRadius * 1.1),
+    potRimRadius,
+    potRimDepth: potRimRadius * tilt, // half-height of the rim ellipse
+    potBaseY,
+    potBaseRadius,
+    potBaseDepth: potBaseRadius * tilt,
+    potBottomY: potBaseY + potBaseRadius * tilt,
   };
 }
 
@@ -87,7 +139,7 @@ function createFlowers() {
         palette: FLOWER_PALETTES[PALETTE_ORDER[index % PALETTE_ORDER.length]],
         petals: 5 + (index % 2),
         spinSpeed: index % 2 ? 0.5 : -0.5,
-        bloomDelay: 0.2 + ringIndex * 0.35 + n * 0.05,
+        bloomDelay: BLOOM_START + ringIndex * 0.35 + n * 0.05,
       });
     }
   });
@@ -97,7 +149,7 @@ function createFlowers() {
 function createLeaves() {
   return Array.from({ length: LEAF_COUNT }, (_, n) => ({
     direction: domeDirection(LEAF_LATITUDE, (n / LEAF_COUNT) * TAU + 0.2),
-    bloomDelay: 0.1 + n * 0.08,
+    bloomDelay: BLOOM_START - 0.1 + n * 0.08,
   }));
 }
 
@@ -130,11 +182,17 @@ function bloomProgress(time, delay, duration) {
   return easeOutBack(clamp((time - delay) / duration, 0, 1));
 }
 
+/** How far the bouquet is still above its resting place, in pixels (0 once it has landed). */
+function dropOffset(time, height) {
+  const progress = clamp(time / DROP_SECONDS, 0, 1);
+  return -(1 - easeOutBack(progress, 0.6)) * height * DROP_DISTANCE;
+}
+
 /**
  * Draws a flat shape lying on a plane. The plane is described by its centre
  * [x, y, depth] on screen and its normal. For every cell the shape covers,
  * `shade(u, v)` is called with the position in the plane (spun by `spin`) and
- * returns { char, color }, or null to leave the cell empty.
+ * returns { char, color, fill }, or null to leave the cell empty.
  */
 function drawPlanarShape(grid, scale, center, normal, extent, spin, shade) {
   const facing = Math.abs(normal[2]) < MIN_FACING ? Math.sign(normal[2] || 1) * MIN_FACING : normal[2];
@@ -161,7 +219,7 @@ function drawPlanarShape(grid, scale, center, normal, extent, spin, shade) {
       const cell = shade(u * cosSpin - v * sinSpin, u * sinSpin + v * cosSpin);
       if (cell) {
         const depth = centerDepth + (dz / scale) * DEPTH_SCALE;
-        grid.writeAtDepth(column, row, cell.char, cell.color, depth);
+        grid.writeAtDepth(column, row, cell.char, cell.color, depth, cell.fill);
       }
     }
   }
@@ -177,15 +235,17 @@ function drawLeaves(grid, layout, leaves, time, angle) {
     const length = LEAF_LENGTH * layout.scale * position.perspective * bloom;
     const width = LEAF_WIDTH * layout.scale * position.perspective * bloom;
     const facesAway = normal[2] < 0;
+    const lighting = Math.max(0, dot(facesAway ? normal.map((c) => -c) : normal, LIGHT_DIRECTION));
 
     drawPlanarShape(grid, layout.scale, [position.x, position.y, position.z], normal,
       Math.max(length, width), 0, (u, v) => {
         const edge = (u / width) ** 2 + (v / length) ** 2;
         if (edge > 1) return null;
 
-        const char = Math.abs(u) < width * 0.1 ? '|' : edge < 0.35 ? '=' : edge < 0.75 ? '-' : ':';
-        const color = LEAF_COLORS[facesAway ? 2 : edge < 0.5 ? 0 : 1];
-        return { char, color };
+        const vein = Math.abs(u) < width * 0.12 ? 0.2 : 0;
+        const brightness = (facesAway ? 0.15 : 0.3) + 0.45 * lighting + 0.2 * (1 - edge) + vein;
+        const color = LEAF_COLORS[brightness > 0.62 ? 0 : brightness > 0.4 ? 1 : 2];
+        return { char: brightnessChar(brightness), color, fill: true };
       });
   }
 }
@@ -207,20 +267,19 @@ function projectFlowers(layout, flowers, time, angle) {
   });
 }
 
-/** Stems run from every second flower down into the pot. */
+/** Stems run from every second flower down into the neck of the vase. */
 function drawStems(grid, layout, heads) {
-  const { centerX, potRimY, potTipY } = layout;
+  const { centerX, potRimY } = layout;
 
   heads.forEach((head, index) => {
     if (head.radius < 2 || index % 2) return;
 
-    const slope = (centerX - head.x) / (potTipY - head.y);
+    const slope = (centerX - head.x) / (potRimY - head.y);
     const char = Math.abs(slope) < 0.35 ? '|' : slope > 0 ? '\\' : '/';
-    const reachesRim = Math.min(1, (potRimY - head.y) / (potTipY - head.y));
 
-    for (let progress = 0; progress < reachesRim; progress += 0.012) {
+    for (let progress = 0; progress < 1; progress += 0.012) {
       const x = lerp(head.x, centerX, progress);
-      const y = lerp(head.y, potTipY, progress);
+      const y = lerp(head.y, potRimY, progress);
       grid.writeAtDepth(grid.columnAt(x), grid.rowAt(y), char, STEM_COLOR, lerp(head.z, 0, progress) - 0.05);
     }
   });
@@ -232,35 +291,33 @@ function drawFlowers(grid, layout, heads, time) {
 
     const { flower, normal, radius } = head;
     const facesViewer = normal[2] > 0;
-    const isObliqueView = Math.abs(normal[2]) < 0.3;
+    const lighting = Math.max(0, dot(facesViewer ? normal : normal.map((c) => -c), LIGHT_DIRECTION));
 
     drawPlanarShape(grid, layout.scale, [head.x, head.y, head.z], normal, radius,
       time * flower.spinSpeed, (u, v) => {
+        const angle = Math.atan2(v, u);
         const distance = Math.hypot(u, v);
-        const petalEdge = radius * (0.62 + 0.38 * Math.abs(Math.cos((flower.petals / 2) * Math.atan2(v, u))));
+        const petalEdge = radius * (0.62 + 0.38 * Math.abs(Math.cos((flower.petals / 2) * angle)));
         if (distance > petalEdge) return null;
 
         const t = distance / petalEdge; // 0 at the centre, 1 at the petal tip
         if (!facesViewer) {
-          return {
-            char: BACK_PETAL_CHARS[Math.min(4, Math.floor(t * 5))],
-            color: t > 0.6 ? LEAF_COLORS[2] : BACK_PETAL_TIP_COLOR,
-          };
+          const brightness = 0.15 + 0.35 * lighting + 0.1 * (1 - t);
+          return { char: brightnessChar(brightness), color: t > 0.6 ? LEAF_COLORS[2] : BACK_PETAL_COLOR, fill: true };
         }
-        if (t < 0.15) return { char: '@', color: FLOWER_CENTER_COLOR };
-        if (t < 0.3) return { char: 'O', color: FLOWER_RING_COLOR };
+        if (t < 0.15) return { char: '@', color: FLOWER_CENTER_COLOR, fill: true };
+        if (t < 0.3) return { char: 'O', color: FLOWER_RING_COLOR, fill: true };
 
-        const shade = (t < 0.55 ? 0 : t < 0.8 ? 1 : 2) + (isObliqueView ? 1 : 0);
-        return {
-          char: FRONT_PETAL_CHARS[Math.min(6, Math.floor((t - 0.3) / 0.1))],
-          color: flower.palette[Math.min(2, shade)],
-        };
+        const ridge = 0.5 + 0.5 * Math.cos(flower.petals * angle); // brighter along the middle of each petal
+        const brightness = 0.25 + 0.6 * lighting + 0.18 * (ridge - 0.5) + 0.15 * (0.5 - t);
+        const color = flower.palette[brightness > 0.62 ? 0 : brightness > 0.4 ? 1 : 2];
+        return { char: brightnessChar(brightness), color, fill: true };
       });
   }
 }
 
-/** Inside the opening of the pot: its rim, or the dark inner wall. */
-function drawPotOpening(grid, column, row, rimDistance, isFrontHalf) {
+/** Inside the opening of the vase: its rim, or the dark inner wall. */
+function drawVaseOpening(grid, column, row, rimDistance, isFrontHalf) {
   if (rimDistance > 0.8) {
     // The front lip is drawn in front of the flowers, the back lip behind them.
     grid.writeAtDepth(column, row, isFrontHalf ? '=' : '-', RIM_COLOR, isFrontHalf ? 0.5 : -0.9);
@@ -269,51 +326,50 @@ function drawPotOpening(grid, column, row, rimDistance, isFrontHalf) {
   }
 }
 
-/** The outside of the pot: lit from one side, with pleats and stripes that turn with the bouquet. */
-function drawPotSurface(grid, column, row, offsetX, halfWidth, taper, angle) {
+/** The outside of the vase: lit from one side, with pleats and rings that turn with the bouquet. */
+function drawVaseSurface(grid, column, row, offsetX, halfWidth, progress, slope, angle) {
   const around = Math.asin(clamp(offsetX / Math.max(halfWidth, 1), -1, 1));
   const turned = around + angle;
-  const normal = normalize([Math.sin(around) * 0.94, POT_SLOPE, Math.cos(around) * 0.94]);
+  const normal = normalize([Math.sin(around), -slope, Math.cos(around)]);
   const diffuse = Math.max(0, dot(normal, LIGHT_DIRECTION));
-  const pleats = Math.sin(turned * POT_PLEATS) * 0.16;
-  const brightness = clamp(0.12 + 0.78 * diffuse + 0.25 * diffuse ** 8 + pleats - 0.12 * taper, 0, 1);
+  const pleats = Math.sin(turned * VASE_PLEATS) * 0.12;
+  const brightness = clamp(0.15 + 0.75 * diffuse + 0.25 * diffuse ** 8 + pleats, 0, 1);
 
-  const stripe = Math.floor((turned / Math.PI) * POT_STRIPES_PER_HALF_TURN) & 1;
-  const hue = stripe ? 345 : 22;
-  const char = POT_SHADE_CHARS[Math.floor(brightness * 8.99)];
-  grid.writeAtDepth(column, row, char, `hsl(${hue}, 90%, ${22 + 58 * brightness}%)`, 0.4);
+  const isRing = Math.floor(progress * VASE_RING_COUNT) % VASE_RING_EVERY === 0;
+  const hue = isRing ? VASE_RING_HUE : VASE_BODY_HUE;
+  const color = `hsl(${hue}, 60%, ${20 + 55 * brightness}%)`;
+  grid.writeAtDepth(column, row, brightnessChar(brightness), color, 0.4, true);
 }
 
-function drawPot(grid, layout, angle) {
-  const { centerX, potRadius, potRimY, potRimDepth, potTipY } = layout;
+function drawVase(grid, layout, angle) {
+  const { centerX, potRadius, potRimRadius, potRimY, potRimDepth, potBaseY, potBaseDepth } = layout;
+  const height = potBaseY - potRimY;
   const firstRow = grid.rowAt(potRimY - potRimDepth);
-  const lastRow = potTipY / grid.cellHeight;
+  const lastRow = (potBaseY + potBaseDepth) / grid.cellHeight;
   const firstColumn = grid.columnAt(centerX - potRadius) - 1;
   const lastColumn = Math.ceil((centerX + potRadius) / grid.cellWidth) + 1;
 
   for (let row = firstRow; row <= lastRow; row++) {
     const y = (row + 0.5) * grid.cellHeight;
-    const taper = clamp((y - potRimY) / (potTipY - potRimY), 0, 1); // 0 at the rim, 1 at the tip
-    const halfWidth = y >= potRimY ? potRadius * (1 - taper) : 0;
+    const progress = clamp((y - potRimY) / height, 0, 1); // 0 at the rim, 1 at the base
+    const halfWidth = y >= potRimY ? potRadius * vaseRadius(progress) : 0;
+    const slope = (potRadius * (vaseRadius(Math.min(1, progress + 0.01)) - vaseRadius(Math.max(0, progress - 0.01)))) / (0.02 * height);
 
     for (let column = firstColumn; column <= lastColumn; column++) {
       const offsetX = (column + 0.5) * grid.cellWidth - centerX;
-      const rimDistance = (offsetX / potRadius) ** 2 + ((y - potRimY) / potRimDepth) ** 2;
+      const rimDistance = (offsetX / potRimRadius) ** 2 + ((y - potRimY) / potRimDepth) ** 2;
 
       if (rimDistance <= 1) {
-        drawPotOpening(grid, column, row, rimDistance, y > potRimY);
+        drawVaseOpening(grid, column, row, rimDistance, y > potRimY);
       } else if (y >= potRimY && Math.abs(offsetX) < halfWidth) {
-        drawPotSurface(grid, column, row, offsetX, halfWidth, taper, angle);
+        // The bottom edge curves like the rim does, because we look down on the vase.
+        const curve = Math.sqrt(Math.max(0, 1 - (offsetX / halfWidth) ** 2));
+        if (y <= potBaseY + potBaseDepth * curve) {
+          drawVaseSurface(grid, column, row, offsetX, halfWidth, progress, slope, angle);
+        }
       }
     }
   }
-}
-
-function drawRibbon(grid, layout) {
-  const row = grid.rowAt(layout.potTipY);
-  const column = grid.columnAt(layout.centerX);
-  grid.write(column - 2, row, '<(@)>', RIBBON_COLOR);
-  grid.write(column - 1, row + 1, '/ \\', RIBBON_COLOR);
 }
 
 class Bouquet {
@@ -324,12 +380,18 @@ class Bouquet {
 
   draw(grid, layout, time) {
     const angle = time * CONFIG.rotationSpeed;
-    const heads = projectFlowers(layout, this.flowers, time, angle);
+    const drop = dropOffset(time, layout.height);
+    const falling = {
+      ...layout,
+      headY: layout.headY + drop,
+      potRimY: layout.potRimY + drop,
+      potBaseY: layout.potBaseY + drop,
+    };
+    const heads = projectFlowers(falling, this.flowers, time, angle);
 
-    drawLeaves(grid, layout, this.leaves, time, angle);
-    drawStems(grid, layout, heads);
-    drawFlowers(grid, layout, heads, time);
-    drawPot(grid, layout, angle);
-    drawRibbon(grid, layout);
+    drawLeaves(grid, falling, this.leaves, time, angle);
+    drawStems(grid, falling, heads);
+    drawFlowers(grid, falling, heads, time);
+    drawVase(grid, falling, angle);
   }
 }

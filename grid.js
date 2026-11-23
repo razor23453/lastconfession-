@@ -23,15 +23,15 @@ function normalize(vector) {
   return vector.map((component) => component / length);
 }
 
-/** Ease that overshoots slightly before settling at 1. Used for the blooming animation. */
-function easeOutBack(progress) {
-  const overshoot = 1.70158;
+/** Ease that overshoots slightly before settling at 1. Used for blooming and for the bouquet dropping in. */
+function easeOutBack(progress, overshoot = 1.70158) {
   const shifted = progress - 1;
   return 1 + (overshoot + 1) * shifted ** 3 + overshoot * shifted ** 2;
 }
 
 const EMPTY_DEPTH = -9;
 const BASELINE_OFFSET = 0.82; // where text sits inside a cell, as a fraction of its height
+const FILL_OPACITY = 0.2; // strength of the tinted background behind filled cells
 
 /**
  * A grid of coloured characters with a depth buffer. Anything drawn with
@@ -69,11 +69,13 @@ class CellGrid {
     this.chars = new Array(cellCount).fill('');
     this.colors = new Array(cellCount).fill('');
     this.depths = new Float32Array(cellCount);
+    this.fills = new Uint8Array(cellCount);
   }
 
   clear() {
     this.chars.fill('');
     this.depths.fill(EMPTY_DEPTH);
+    this.fills.fill(0);
   }
 
   columnAt(x) {
@@ -99,17 +101,22 @@ class CellGrid {
       const index = row * this.columns + column + offset;
       this.chars[index] = text[offset];
       this.colors[index] = color;
+      this.fills[index] = 0;
     }
   }
 
-  /** Writes one character if it is closer to the viewer than the current contents. */
-  writeAtDepth(column, row, char, color, depth) {
+  /**
+   * Writes one character if it is closer to the viewer than the current contents.
+   * With `fill`, the cell's background is also tinted with the colour, which makes solid objects look denser.
+   */
+  writeAtDepth(column, row, char, color, depth, fill = false) {
     if (!this.contains(column, row)) return;
     const index = row * this.columns + column;
     if (depth <= this.depths[index]) return;
     this.depths[index] = depth;
     this.chars[index] = char;
     this.colors[index] = color;
+    this.fills[index] = fill ? 1 : 0;
   }
 
   render(backgroundColor) {
@@ -123,6 +130,12 @@ class CellGrid {
       for (let column = 0; column < this.columns; column++) {
         const index = row * this.columns + column;
         if (!this.chars[index]) continue;
+        if (this.fills[index]) {
+          context.globalAlpha = FILL_OPACITY;
+          context.fillStyle = this.colors[index];
+          context.fillRect(column * this.cellWidth, row * this.cellHeight, this.cellWidth, this.cellHeight);
+          context.globalAlpha = 1;
+        }
         context.fillStyle = this.colors[index];
         context.fillText(
           this.chars[index],

@@ -7,6 +7,7 @@ const context = canvas.getContext('2d');
 const grid = new CellGrid(context);
 const bouquet = new Bouquet();
 const particles = new ParticleField();
+const mascot = new PixelSprite(MASCOT_SPRITE);
 const letter = new LetterDialog(
   {
     overlay: document.getElementById('letter'),
@@ -16,8 +17,6 @@ const letter = new LetterDialog(
   },
   CONFIG.letter,
 );
-
-document.getElementById('photo-caption').textContent = CONFIG.photoCaption;
 
 const RESIZE_DEBOUNCE_MS = 150;
 const MAX_FRAME_SECONDS = 0.05; // stops particles jumping after the tab was in the background
@@ -38,7 +37,7 @@ function resize() {
   context.setTransform(ratio, 0, 0, ratio, 0, 0);
 
   grid.resize(width, height);
-  layout = computeLayout(width, height);
+  layout = computeLayout(width, height, grid.cellHeight);
   particles.reset(grid);
 }
 
@@ -49,7 +48,7 @@ function frame(now) {
 
   grid.clear();
   bouquet.draw(grid, layout, time);
-  envelopeArea = drawFigure(grid, layout, time);
+  envelopeArea = drawFigure(grid, layout, time, mascot);
   particles.update(deltaSeconds, time);
   particles.draw(grid, time);
   grid.render(CONFIG.backgroundColor);

@@ -27,41 +27,6 @@ canvas {
   left: -9999px;
 }
 
-/* Photo in the corner */
-
-.polaroid {
-  position: fixed;
-  left: 14px;
-  bottom: calc(14px + env(safe-area-inset-bottom, 0px));
-  width: clamp(84px, 24vw, 150px);
-  margin: 0;
-  padding: 6px 6px 0;
-  background: var(--paper);
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5);
-  transform: rotate(-6deg);
-  animation: polaroid-bob 3.2s ease-in-out infinite;
-  pointer-events: none; /* taps go through to the canvas */
-}
-
-.polaroid img {
-  display: block;
-  width: 100%;
-  height: auto;
-  border-radius: 2px;
-}
-
-.polaroid figcaption {
-  padding: 4px 0 6px;
-  color: var(--ink);
-  font: 400 clamp(14px, 4vw, 20px) / 1.1 var(--handwriting);
-  text-align: center;
-}
-
-@keyframes polaroid-bob {
-  0%, 100% { transform: rotate(-6deg) translateY(0); }
-  50% { transform: rotate(-4deg) translateY(-5px); }
-}
-
 /* Letter dialog */
 
 .letter-overlay {
@@ -143,9 +108,5 @@ canvas {
   .letter-overlay,
   .letter-paper {
     transition: none;
-  }
-
-  .polaroid {
-    animation: none;
   }
 }

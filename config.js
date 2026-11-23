@@ -5,8 +5,8 @@ const CONFIG = {
   // Small line of text shown under the little character.
   caption: 'a little something for u <3',
 
-  // Handwritten label under the photo in the corner.
-  photoCaption: 'say cheese!',
+  // Small label under the mascot next to the character.
+  mascotCaption: 'say cheese!',
 
   // Shown when the envelope is opened. Each entry in `body` becomes a paragraph.
   // Long letters are fine: the paper scrolls.
