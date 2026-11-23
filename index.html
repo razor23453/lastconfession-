@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Happy Birthday</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@400;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <canvas id="scene" role="img" aria-label="A bouquet of flowers slowly spinning"></canvas>
+
+  <figure class="polaroid">
+    <img src="hachiware.jpg" alt="Hachiware holding a camera" width="480" height="480">
+    <figcaption id="photo-caption"></figcaption>
+  </figure>
+
+  <!-- Keyboard and screen reader alternative to tapping the envelope on the canvas. -->
+  <button id="letter-open" class="visually-hidden" type="button">Open the letter</button>
+
+  <div id="letter" class="letter-overlay" hidden>
+    <article id="letter-paper" class="letter-paper" role="dialog" aria-modal="true" aria-labelledby="letter-title">
+      <button id="letter-close" class="letter-close" type="button" aria-label="Close the letter">&times;</button>
+    </article>
+  </div>
+
+  <script src="config.js"></script>
+  <script src="grid.js"></script>
+  <script src="bouquet.js"></script>
+  <script src="figure.js"></script>
+  <script src="particles.js"></script>
+  <script src="letter.js"></script>
+  <script src="main.js"></script>
+</body>
+</html>
